@@ -918,6 +918,17 @@ def arrange(ctx, package_name, front, **tend_args):
     return ctx.obj["garden"].arrange(package_name, front=front, **tend_args)
 
 
+@cli.command(options_metavar="[options]")
+@click.pass_context
+def packages(ctx):
+    """
+    List installed packages.
+    """
+
+    for name in ctx.obj["garden"].manifest:
+        click.echo(name)
+
+
 def main():
     cli(obj={})
 
