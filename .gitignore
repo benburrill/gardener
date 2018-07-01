@@ -5,4 +5,5 @@
 # Packaging and venvs
 **/*.egg-info/
 /dist/
+/build/
 /.venv/
