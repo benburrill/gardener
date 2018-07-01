@@ -53,6 +53,31 @@ def abspath(path):
     return pathlib.Path(os.path.abspath(path))
 
 
+def move_adjust(from_path, to_path):
+    """
+    Move from_path to to_path, but adjust any relative symlinks so they
+    don't break.  I don't know why shutil.move doesn't already do this.
+    Hopefully there isn't a reason.
+    """
+
+    try:
+        symlink_target = readlink(from_path)
+    except OSError:
+        symlink_target = None
+
+    if symlink_target is None or symlink_target.is_absolute():
+        shutil.move(from_path, to_path)
+    else:
+        # os.path.relpath is used rather than relative_to because it
+        # uses ../ paths when needed.
+        to_path.symlink_to(os.path.relpath(
+            abspath(from_path.parent / symlink_target),
+            to_path.parent
+        ))
+
+        from_path.unlink()
+
+
 def deferred(func):
     @functools.wraps(func)
     def wrapped(*args, **kwargs):
@@ -236,7 +261,7 @@ class Garden:
                 f"exists, but is not owned by the garden."
             )
         elif weed_strat == WeedStrategy.COMPOST:
-            yield self.do_move_to_package(path, compost_bin)
+            yield self.do_move_to_package(compost_bin, path)
         elif weed_strat == WeedStrategy.HERBICIDE:
             yield self.do_delete_weed(path)
         else:
@@ -332,6 +357,18 @@ class Garden:
 
         yield from self.tend(**tend_args)
         yield from self.clean()
+    
+    def _walk_paths(self, garden_paths):
+        # Takes a list of files and directories, yields both files and
+        # sub-files, making them all relative to the garden.
+        for garden_path in garden_paths:
+            if garden_path.is_dir():
+                yield from file_tree(
+                    abspath(garden_path), rel=self.root
+                )
+            else:
+                yield abspath(garden_path).relative_to(self.root)
+
 
     def cultivate(self, package_name, paths, **tend_args):
         # Make sure the packages are up-to-date before we do anything.
@@ -350,40 +387,64 @@ class Garden:
         rec = self.manifest[package_name]
         package = rec.package
 
-        for garden_path in paths:
-            if garden_path.is_dir():
-                sub_paths = file_tree(
-                    abspath(garden_path), rel=self.root
-                )
-            else:
-                sub_paths = [
-                    abspath(garden_path).relative_to(self.root)
-                ]
+        for path in self._walk_paths(paths):
+            garden_path = self.root / path
+            target_path = rec.package.root / path
+
+            if not os.path.lexists(garden_path):
+                raise FileNotFoundError(garden_path)
             
-            for path in sub_paths:
-                garden_path = self.root / path
-                target_path = rec.package.root / path
-                if not os.path.lexists(garden_path):
-                    raise FileNotFoundError(garden_path)
-                
-                if self.owns(garden_path):
-                    raise FileIsNotAWeedError(
-                        f"{garden_path} is already owned by the garden."
-                    )
+            if self.owns(garden_path):
+                raise FileIsNotAWeedError(
+                    f"{garden_path} is already owned by the garden."
+                )
 
-                if os.path.lexists(target_path):
-                    raise FileExistsError(
-                        f"The package {rec.package.name!r} already has "
-                        f"a file at {path}."
-                    )
+            if os.path.lexists(target_path):
+                raise FileExistsError(
+                    f"The package {rec.package.name!r} already has a "
+                    f"file at {path}."
+                )
 
-                yield self.do_move_to_package(path, rec.package)
-                if not rec.package.is_ignored(path):
-                    rec.paths.add(path)
-                    self.dirty = True
+            yield self.do_move_to_package(rec.package, path)
+            if not rec.package.is_ignored(path):
+                rec.paths.add(path)
+                self.dirty = True
 
-                    yield self.do_write_symlink(rec.package, path, True)
+                yield self.do_write_symlink(rec.package, path, True)
         
+        yield from self.clean()
+    
+    def fallow(self, paths, **tend_args):
+        # Like cultivate, this function needs to be careful about tend
+        # It's important to remember that weed conflicts have already
+        # been dealt with in self.tend, even if it doesn't look like it.
+        yield from self.tend(**tend_args)
+
+        for path in self._walk_paths(paths):
+            garden_path = self.root / path
+
+            recs = [rec for rec in self.manifest.values()
+                    if path in rec.package.paths]
+            
+            if not recs:
+                raise PackageOwnershipError(
+                    f"{garden_path} is not provided by any package."
+                )
+
+            rec = recs.pop()
+
+            if recs:
+                raise PackageOwnershipError(
+                    f"{garden_path} is provided by multiple packages, "
+                    f"would result in weed conflict cascade.  Shadowed "
+                    f"packages: {[rec.package.name for rec in recs]}"
+                )
+            
+            rec.paths.remove(path)
+            self.dirty = True
+
+            yield self.do_move_out_of_package(rec.package, path)
+
         yield from self.clean()
 
     def prune(self, package_names, *, _tend=True, **tend_args):
@@ -464,7 +525,7 @@ class Garden:
             )
 
     @deferred
-    def do_move_to_package(self, path, package):
+    def do_move_to_package(self, package, path):
         "Move {self.root}/{path} to {package.root}/{path}"
 
         from_path = self.root / path
@@ -477,25 +538,24 @@ class Garden:
             )
 
         to_path.parent.mkdir(parents=True, exist_ok=True)
+        move_adjust(from_path, to_path)
 
-        try:
-            symlink_target = readlink(from_path)
-        except OSError:
-            symlink_target = None
+    @deferred
+    def do_move_out_of_package(self, package, path):
+        "Move {package.root}/{path} to {self.root}/{path}"
+        # TODO: maybe combine moving to/from packages?
+        
+        from_path = package.root / path
+        to_path = self.root / path
 
-        if symlink_target is None or symlink_target.is_absolute():
-            shutil.move(from_path, to_path)
-        else:
-            # Relative symlinks are broken when moved, so make the
-            # symlink's target relative to the new location.
-            # os.path.relpath is used rather than relative_to because it
-            # uses ../ paths when needed.
-            to_path.symlink_to(os.path.relpath(
-                abspath(from_path.parent / symlink_target),
-                to_path.parent
-            ))
+        if os.path.lexists(to_path) and not package.owns(to_path):
+            raise PackageOwnershipError(
+                f"The package {package.name!r} does not own the file "
+                f"at {to_path}."
+            )
 
-            from_path.unlink()
+        to_path.parent.mkdir(parents=True, exist_ok=True)
+        move_adjust(from_path, to_path)
 
     @deferred
     def do_write_symlink(self, package, path, no_shadow=False):
@@ -796,6 +856,23 @@ def cultivate(ctx, package, files, **tend_args):
     """
 
     return ctx.obj["garden"].cultivate(package, files, **tend_args)
+
+
+@cli.command(options_metavar="[options]")
+@click.argument("files", nargs=-1, type=pathlib.Path,
+                metavar="[files]...")
+@common_opts
+def fallow(ctx, files, **tend_args):
+    """
+    Move file(s) out from their package.
+
+    The garden symlinks referred to by the specified files are replaced
+    with the file itself, turning them into weeds.
+
+    In other words, this command reverses the effects of cultivate.
+    """
+
+    return ctx.obj["garden"].fallow(files, **tend_args)
 
 
 @cli.command(options_metavar="[options]")
