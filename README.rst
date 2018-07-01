@@ -17,8 +17,8 @@ Features
   stuff in the future), and packages have a real concept of being
   installed which allows symlinks to be easily and accurately updated
   when packages change.
-- A command for easily moving a weed into a package and symlinking it
-  back out.
+- Commands for converting specific weeds into symlinks managed by the
+  garden and vice-versa.
 - And most importantly -- hastily tacked on gardening metaphors!
 
 Installation
@@ -67,6 +67,22 @@ and creates a symlink in their place.
 .. code:: shell
 
     $ gardener cultivate -p common some/file another/file
+
+Turn those symlinks back into weeds.
+
+.. code:: shell
+
+    $ gardener fallow some/file another/file
+
+
+Change package precedence.
+
+This causes symlinks owned by ex to shadow symlinks owned by all other
+packages.  Earlier, the package other-ex was in front of it.
+
+.. code:: shell
+
+    $ gardener arrange --front ex
 
 Prune (uninstall) packages
 
