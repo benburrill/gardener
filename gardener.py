@@ -463,6 +463,15 @@ class Garden:
 
         if _tend:
             yield from self.tend(**tend_args)
+    
+    def arrange(self, package_name, *, front=True, **tend_args):
+        old = list(self.manifest)
+        self.manifest.move_to_end(package_name, last=front)
+        if list(self.manifest) != old:
+            self.dirty = True
+        yield from self.clean()
+
+        yield from self.tend(**tend_args)
 
     def clean(self):
         """
@@ -698,7 +707,7 @@ def common_opts(func):
                        "error, with 'compost', conflicting weeds are "
                        "backed up, and with 'herbicide', conflicting "
                        "weeds are deleted.")
-    @click.option("--shadow/--no-shadow", default=True,
+    @click.option("--shadow / --no-shadow", default=True,
                   help="If --no-shadow is passed, conflicts between "
                        "files of different packages causes an error.  "
                        "The default is to shadow files from packages "
@@ -890,6 +899,23 @@ def prune(ctx, package_names, **tend_args):
     """
 
     return ctx.obj["garden"].prune(package_names, **tend_args)
+
+
+@cli.command(options_metavar="[options] (--front|--back)")
+@click.argument("package-name", metavar="package-name")
+@click.option("--front / --back", default=None, required=True,
+              help="Specifies how to arrange the package.")
+@common_opts
+def arrange(ctx, package_name, front, **tend_args):
+    """
+    Change the precedence of a package.
+
+    \b
+    --front gives the package the highest precedence
+    --back gives the package the lowest precedence
+    """
+
+    return ctx.obj["garden"].arrange(package_name, front=front, **tend_args)
 
 
 def main():
