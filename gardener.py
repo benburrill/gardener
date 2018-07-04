@@ -3,7 +3,7 @@ A symlink farm manager akin to GNU Stow, but with additional features
 that are useful for tasks such as managing dotfiles.
 """
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 
 import os
@@ -34,7 +34,7 @@ def file_tree(root, *, rel=None):
 
     for path in root.iterdir():
         if path.is_dir():
-            yield from file_tree(path, rel=root)
+            yield from file_tree(path, rel=rel)
         else:
             yield path.relative_to(rel)
 
