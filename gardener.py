@@ -242,6 +242,17 @@ class Garden:
                    for dead_package in self.dead)
         )
 
+    def owner(self, rel_path):
+        """
+        Returns the owner package for a path, or None if the path refers
+        to a weed or empty soil.
+        """
+
+        return next((
+            rec.package for rec in reversed(self.manifest.values())
+            if rel_path in rec.package.paths
+        ), None)
+
     def new_compost_bin(self):
         """
         A "compost bin" is a package to throw weeds into in case of
@@ -369,7 +380,6 @@ class Garden:
             else:
                 yield abspath(garden_path).relative_to(self.root)
 
-
     def cultivate(self, package_name, paths, **tend_args):
         # Make sure the packages are up-to-date before we do anything.
         # Note that we can't do a tend at the end of this function.
@@ -390,13 +400,16 @@ class Garden:
         for path in self._walk_paths(paths):
             garden_path = self.root / path
             target_path = rec.package.root / path
+            owner = self.owner(path)
 
-            if not os.path.lexists(garden_path):
-                raise FileNotFoundError(garden_path)
+            if owner is rec.package:
+                # Already cultivated
+                continue
             
-            if self.owns(garden_path):
-                raise FileIsNotAWeedError(
-                    f"{garden_path} is already owned by the garden."
+            if owner is not None:
+                raise PackageOwnershipError(
+                    f"The file at {path} is owned by another package: "
+                    f"{owner.name!r}."
                 )
 
             if os.path.lexists(target_path):
