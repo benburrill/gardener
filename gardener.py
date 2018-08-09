@@ -436,13 +436,15 @@ class Garden:
         for path in self._walk_paths(paths):
             garden_path = self.root / path
 
+            # TODO: this is similar to ``owner``, maybe we should
+            # actually have a ``owners`` method and have it yield
+            # records rather than packages.
             recs = [rec for rec in self.manifest.values()
                     if path in rec.package.paths]
             
             if not recs:
-                raise PackageOwnershipError(
-                    f"{garden_path} is not provided by any package."
-                )
+                # Path is already fallow
+                continue
 
             rec = recs.pop()
 
