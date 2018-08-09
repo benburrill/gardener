@@ -44,7 +44,12 @@ setup(
         "click"
     ],
     license="MIT",
-    classifiers=["Programming Language :: Python :: 3"]
+    classifiers=["Programming Language :: Python :: 3",
+                 "Programming Language :: Python :: 3 :: Only",
+                 "License :: OSI Approved :: MIT License",
+                 "Topic :: System :: Archiving :: Packaging",
+                 "Topic :: System :: Filesystems",
+                 "Topic :: Utilities"]
 )
 
 # vim: foldmethod=marker
