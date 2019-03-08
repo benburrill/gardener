@@ -138,6 +138,13 @@ class Package:
 
     @property
     def config_path(self):
+        preferred = self.root / "GARDEN_PACKAGE.json"
+        if preferred.exists():
+            return preferred
+
+        # Backwards compatibility with old name for this.  I changed it
+        # because it looked weird for a package configuration file,
+        # especially when used with dotfiles.
         return self.root / ".garden-package.json"
 
     @property
