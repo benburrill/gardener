@@ -3,7 +3,7 @@ A symlink farm manager akin to GNU Stow, but with additional features
 that are useful for tasks such as managing dotfiles.
 """
 
-__version__ = "0.2.3"
+__version__ = "0.2.4"
 
 
 import os
