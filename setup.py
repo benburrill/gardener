@@ -41,7 +41,7 @@ setup(
         ]
     },
     install_requires=[
-        "click"
+        "click >= 8"
     ],
     license="MIT",
     classifiers=["Programming Language :: Python :: 3",

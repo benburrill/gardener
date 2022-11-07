@@ -797,7 +797,7 @@ def cli(ctx, garden):
     ctx.obj["verbose"] = False
 
 
-@cli.resultcallback()
+@cli.result_callback()
 @click.pass_context
 def do_it(ctx, gen, **_):
     if gen is not None:
