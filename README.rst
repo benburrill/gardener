@@ -26,7 +26,16 @@ Installation
 
 Python >= 3.6 is required.
 
-Recommended installation (with `pipsi`_):
+Symlink Gardener is a single-file script with no other dependencies, so
+you may install with:
+
+..code:: shell
+
+    $ curl https://raw.githubusercontent.com/benburrill/gardener/refs/heads/master/gardener.py -o ~/.local/bin/gardener
+    $ chmod +x ~/.local/bin/gardener
+
+
+You can also install with pip or `pipsi`_:
 
 .. code:: shell
 
