@@ -46,7 +46,7 @@ Plant (install) packages in the garden
 This creates symlinks in the garden directory at paths that correspond
 to those in the package directory.
 
-Packages may be customized in ``/.garden-package.json`` (currently all
+Packages may be customized in ``/GARDEN_PACKAGE.json`` (currently all
 you can do is add ignore patterns)
 
 .. code:: shell

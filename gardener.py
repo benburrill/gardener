@@ -1,12 +1,14 @@
+#!/usr/bin/env python3
 """
 A symlink farm manager akin to GNU Stow, but with additional features
 that are useful for tasks such as managing dotfiles.
 """
 
-__version__ = "0.2.4"
+__version__ = "0.3.0"
 
 
 import os
+import sys
 import pathlib
 import shutil
 import time
@@ -15,7 +17,7 @@ import enum
 import functools
 import collections
 import inspect
-import click
+import argparse
 
 
 # This is the name of the shed directory that indicates the presence of
@@ -637,61 +639,64 @@ def bullet(string):
 
 
 def dry_run(gen, **_):
-    actions = list(gen)
-    
+    try:
+        actions = list(gen)
+    except Exception as e:
+        exit_with_error(str(e))
+
     if not actions:
-        click.echo("Nothing would be done")
+        print("Nothing would be done")
     else:
-        click.echo("The following actions would be performed:")
+        print("The following actions would be performed:")
         for action in actions:
-            click.echo(bullet(describe_action(action)))
+            print(bullet(describe_action(action)))
 
 
 def run(gen, *, verbose=False):
-    actions = list(gen)
+    try:
+        actions = list(gen)
+    except Exception as e:
+        exit_with_error(str(e))
+
     remaining = iter(actions)
 
     if verbose and not actions:
-        click.echo("Nothing to do")
+        print("Nothing to do")
 
     try:
         for action in remaining:
             if verbose:
-                click.echo(f"{describe_action(action)} ... ", nl=False)
+                print(describe_action(action), end=" ... ")
 
             action()
 
             if verbose:
-                click.secho("done", fg="green")
+                print("done")
     except Exception:
         if verbose:
-            click.secho("failed!", fg="red")
+            print("failed!")
 
-        click.echo(
-            click.style("Action failed: ", fg="yellow") +
-            click.style(describe_action(action), fg="red"),
-            err=True
+        print(
+            f"Action failed: {describe_action(action)}",
+            file=sys.stderr
         )
 
         remaining = list(remaining)
         if remaining:
-            click.secho(
+            print(
                 "Additionally, the following subsequent actions could "
                 "not performed:",
-                fg="yellow", err=True
+                file=sys.stderr
             )
 
             for action in remaining:
-                click.secho(
-                    bullet(describe_action(action)),
-                    fg="red", err=True
-                )
-        
-        click.secho(
+                print(describe_action(action), file=sys.stderr)
+
+        print(
             "Encountered an exception while running planned actions.  "
             "Errors are supposed to be caught in the planning stage, "
             "so this likely indicates a bug in gardener!",
-            fg="yellow", err=True
+            file=sys.stderr
         )
 
         # Traceback
@@ -721,238 +726,325 @@ def parse_package(package):
     return (package.name, package)
 
 
-def common_opts(func):
-    @click.option("--weeds", type=WeedStrategy, default="fail",
-                  metavar="<strategy>", show_default=True,
-                  help="The weed conflict resolution strategy to use.  "
-                       "When 'fail' is used, conflicts result in an "
-                       "error, with 'compost', conflicting weeds are "
-                       "backed up, and with 'herbicide', conflicting "
-                       "weeds are deleted.")
-    @click.option("--shadow / --no-shadow", default=True,
-                  help="If --no-shadow is passed, conflicts between "
-                       "files of different packages causes an error.  "
-                       "The default is to shadow files from packages "
-                       "with lower precedence.")
-    @click.option("--dry", is_flag=True,
-                  help="Perform a dry run.  Actions are printed, but "
-                       "not executed.")
-    @click.option("--verbose", is_flag=True,
-                  help="Show the actions performed by gardener during "
-                       "execution.  This has no effect in a dry run.")
-    @click.pass_context
-    @functools.wraps(func)
-    def wrapped(ctx, weeds, shadow, dry, verbose, **kwargs):
-        ctx.obj["runner"] = dry_run if dry else run
-        ctx.obj["verbose"] = verbose
+def add_custom_help(parser, help="Show this help message and exit."):
+    # Although argparse adds -h and --help by default, the help says
+    # "show this help message and exit" in lowercase.
+    # I prefer it capitalized with a period at the end, so I do not use
+    # this default behavior.
+    parser.add_argument(
+        "-h", "--help", action="help",
+        default=argparse.SUPPRESS, help=help
+    )
 
-        return func(
-            ctx,
-            weed_strat=weeds,
-            no_shadow=not shadow,
-            **kwargs
-        )
-
-    return wrapped
+    return parser
 
 
-@click.group(options_metavar="[options]",
-             subcommand_metavar="<command> [args]...")
-@click.version_option(__version__, prog_name="Symlink Gardener")
-@click.option("--garden", "-g", default=".",
-              metavar="<path>", show_default=True,
-              help="Directory of the garden.  If no garden exists, "
-                   "gardener will search parent directories.")
-@click.pass_context
-def cli(ctx, garden):
-    """
+common_opts = argparse.ArgumentParser(add_help=False)
+common_opts.add_argument(
+    "--weeds", metavar="<strategy>", dest="weed_strat",
+    type=WeedStrategy, default="fail",
+    help="The weed conflict resolution strategy to use.  "
+         "When 'fail' is used, conflicts result in an "
+         "error, with 'compost', conflicting weeds are "
+         "backed up, and with 'herbicide', conflicting "
+         "weeds are deleted.  [default: %(default)s]"
+)
+
+common_opts.add_argument(
+    "--no-shadow", action="store_true",
+    help="When two packages provide the same file, produce an error."
+)
+
+common_opts.add_argument(
+    "--shadow", dest="no_shadow", action="store_false",
+    help="When two packages provide the same file, the file from the "
+         "lower precedence package is silently shadowed.  "
+         "[This is the default behavior]"
+)
+common_opts.set_defaults(no_shadow=False)
+
+common_opts.add_argument(
+    "--dry", dest="runner",
+    action="store_const", const=dry_run, default=run,
+    help="Perform a dry run.  Actions are printed, but not executed."
+)
+common_opts.add_argument(
+    "--verbose", action="store_true",
+    help="Show the actions performed by gardener during execution.  "
+         "This has no effect in a dry run."
+)
+
+cmd_gardener = add_custom_help(argparse.ArgumentParser(
+    description="""
     Gardener is a symlink farm manager akin to GNU Stow, but with
     additional features that are useful for tasks such as managing
     dotfiles.
-    """
+    """, add_help=False
+))
+cmd_gardener.add_argument(
+    "--version", action="version",
+    version=f"Symlink Gardener, version {__version__}",
+    help="Show the version number and exit."
+)
+cmd_gardener.add_argument(
+    "-g", "--garden", default=".", metavar="<garden>",
+    help="Directory of the garden.  If no garden exists, gardener will "
+         "search parent directories.  [default: %(default)s]"
+)
 
-    garden_root = abspath(pathlib.Path(garden))
+subparsers = cmd_gardener.add_subparsers(
+    dest="invoked_subcommand", metavar="<subcommand>"
+)
+
+
+def exit_with_error(message, status=2):
+    # Similar to cmd_gardener.error, but doesn't print usage summary
+    cmd_gardener.exit(
+        message=f"{cmd_gardener.prog}: error: {message}\n",
+        status=status
+    )
+
+def find_garden(args):
+    garden_root = abspath(pathlib.Path(args.garden))
 
     while True:
         garden = Garden(garden_root)
 
-        if ctx.invoked_subcommand in {"prepare", "help"}:
-            break
-
         if garden.shed_path.is_dir():
-            break
+            return garden
 
         if garden_root.parents:
             garden_root = garden_root.parent
         else:
-            raise FileNotFoundError(
-                f"Could not find a garden.  Use ``gardener prepare`` "
-                f"to create one."
+            exit_with_error(
+                f"Could not find a garden at {args.garden}\n"
+                "Use ``gardener prepare`` to create a new garden."
             )
 
-    ctx.obj["garden"] = garden
-
-    # Should always be overridden by common_opts
-    ctx.obj["runner"] = run
-    ctx.obj["verbose"] = False
+def get_tend_args(args):
+    return dict(weed_strat=args.weed_strat, no_shadow=args.no_shadow)
 
 
-@cli.result_callback()
-@click.pass_context
-def do_it(ctx, gen, **_):
-    if gen is not None:
-        ctx.obj["runner"](gen, verbose=ctx.obj["verbose"])
+# TODO: I'd like to preserve newlines without removing wrapping in
+# descriptions.  I did try to write the messages to be readable without
+# newlines, and I think they're ok, but I'd still prefer newlines.
+
+cmd_prepare = argparse.ArgumentParser(add_help=False)
+cmd_prepare.add_argument(
+    "--reset", action="store_true",
+    help="If passed, any existing garden will be cleared."
+)
+cmd_prepare = add_custom_help(subparsers.add_parser(
+    "prepare", help="Create a garden.",
+    description="""
+    Create a garden in the current working directory (or the directory
+    specified by --garden passed directly to the gardener command).
+    """, add_help=False,
+    parents=[cmd_prepare, common_opts]
+))
+def task_prepare(args):
+    # We do not use find_garden here, since there is no garden to find.
+    return Garden(pathlib.Path(args.garden)).prepare(
+        reset=args.reset, **get_tend_args(args)
+    )
+cmd_prepare.set_defaults(task=task_prepare)
 
 
-@cli.command(options_metavar="[options]")
-@click.argument("subcommand", required=False,
-                metavar="[subcommand]")
-@click.pass_context
-def help(ctx, subcommand):
-    """
-    Display help about a subcommand.
-
-    If [subcommand] is not passed, help about gardener is shown instead.
-    """
-
-    if subcommand is None:
-        sctx = ctx.parent
-    else:
-        command = ctx.parent.command.commands[subcommand]
-        sctx = click.Context(command, ctx.parent, subcommand)
-
-    click.echo(sctx.get_help())
-
-
-@cli.command(options_metavar="[options]")
-@click.option("--reset", is_flag=True,
-              help="If passed, any existing garden will be cleared.")
-@common_opts
-def prepare(ctx, reset, **tend_args):
-    """
-    Create a garden.
-
-    Creates a garden in the directory specified by the --garden flag to
-    gardener.
-    """
-
-    return ctx.obj["garden"].prepare(reset=reset, **tend_args)
-
-
-@cli.command(options_metavar="[options]")
-@common_opts
-def tend(ctx, **tend_args):
-    """
+cmd_tend = add_custom_help(subparsers.add_parser(
+    "tend", help="Update links.",
+    description="""
     Update links.
 
     Old links will be deleted and new ones created in response to
     changes in the installed packages.
+    """, add_help=False,
+    parents=[common_opts]
+))
+def task_tend(args):
+    return find_garden(args).tend(**get_tend_args(args))
+cmd_tend.set_defaults(task=task_tend)
+
+
+cmd_plant = argparse.ArgumentParser(add_help=False)
+cmd_plant.add_argument(
+    "--replace", action="store_true",
+    help="Replace any existing package with the same name."
+)
+cmd_plant = add_custom_help(subparsers.add_parser(
+    "plant", help="Install package(s) to the garden.",
+    description="Install package(s) to the garden.", add_help=False,
+    parents=[cmd_plant, common_opts]
+))
+cmd_plant.add_argument(
+    "packages", nargs="*", type=parse_package, metavar="[name:]path",
+    help="""
+    The path to a package directory to install, or a name:path pair.
+    If a name is not provided, the package directory name is used as the
+    package name.
     """
-
-    return ctx.obj["garden"].tend(**tend_args)
-
-
-@cli.command(options_metavar="[options]")
-@click.option("--replace", is_flag=True,
-              help="Replace any existing package with the same name.")
-@click.argument("packages", nargs=-1, type=parse_package,
-                metavar="[[name:]package-path]...")
-@common_opts
-def plant(ctx, packages, replace, **tend_args):
-    """
-    Install package(s) to the garden.
-
-    The list of packages may take the form of paths to package
-    directories or name:path pairs.  If a name is not provided for a
-    package, the package directory name is used instead.
-    """
-
-    new = collections.OrderedDict(packages)
-    return ctx.obj["garden"].plant(new, replace=replace, **tend_args)
+)
+def task_plant(args):
+    new = collections.OrderedDict(args.packages)
+    return find_garden(args).plant(
+        new, replace=args.replace, **get_tend_args(args)
+    )
+cmd_plant.set_defaults(task=task_plant)
 
 
-@cli.command(options_metavar="[options] -p <package-name>")
-@click.option("--package", "-p", required=True,
-              metavar="<package-name>",
-              help="The target package.")
-@click.argument("files", nargs=-1, type=pathlib.Path,
-                metavar="[files]...")
-@common_opts
-def cultivate(ctx, package, files, **tend_args):
-    """
-    Add weed(s) to a package.
-
-    The files are moved to the package specified by a package name, and
-    are symlinked back into the garden.
-    """
-
-    return ctx.obj["garden"].cultivate(package, files, **tend_args)
-
-
-@cli.command(options_metavar="[options]")
-@click.argument("files", nargs=-1, type=pathlib.Path,
-                metavar="[files]...")
-@common_opts
-def fallow(ctx, files, **tend_args):
-    """
-    Move file(s) out from their package.
-
-    The garden symlinks referred to by the specified files are replaced
-    with the file itself, turning them into weeds.
-
-    In other words, this command reverses the effects of cultivate.
-    """
-
-    return ctx.obj["garden"].fallow(files, **tend_args)
-
-
-@cli.command(options_metavar="[options]")
-@click.argument("package-names", nargs=-1,
-                metavar="[package-names]...")
-@common_opts
-def prune(ctx, package_names, **tend_args):
-    """
+cmd_prune = add_custom_help(subparsers.add_parser(
+    "prune", help="Uninstall package(s) from the garden.",
+    description="""
     Uninstall package(s) from the garden.
 
     The symlinks of the packages specified by their package names are
     removed from the garden.
 
     The package directory itself is not deleted.
-    """
+    """, add_help=False,
+    parents=[common_opts]
+))
+cmd_prune.add_argument(
+    "package_names", nargs="*", metavar="<package-names>",
+    help="Packages to uninstall (to list installed packages, run "
+         "gardener list)."
+)
+def task_prune(args):
+    return find_garden(args).prune(
+        args.package_names, **get_tend_args(args)
+    )
+cmd_prune.set_defaults(task=task_prune)
 
-    return ctx.obj["garden"].prune(package_names, **tend_args)
+
+cmd_cultivate = argparse.ArgumentParser(add_help=False)
+cmd_cultivate.add_argument(
+    "-p", "--package", required=True, metavar="<package-name>",
+    help="The target package. [required]"
+)
+cmd_cultivate = add_custom_help(subparsers.add_parser(
+    "cultivate", help="Add weed(s) to a package.",
+    description="""
+    Add weed(s) to a package.
+
+    The files are moved to the package specified by a package name, and
+    are symlinked back into the garden.
+    """, add_help=False,
+    parents=[cmd_cultivate, common_opts]
+))
+cmd_cultivate.add_argument(
+    "files", nargs="*", type=pathlib.Path, metavar="<files>",
+    help="Paths to weed files to add to the package."
+)
+def task_cultivate(args):
+    return find_garden(args).cultivate(
+        args.package, args.files, **get_tend_args(args)
+    )
+cmd_cultivate.set_defaults(task=task_cultivate)
 
 
-@cli.command(options_metavar="[options] (--front|--back)")
-@click.argument("package-name", metavar="package-name")
-@click.option("--front / --back", default=None, required=True,
-              help="Specifies how to arrange the package.")
-@common_opts
-def arrange(ctx, package_name, front, **tend_args):
-    """
+cmd_fallow = add_custom_help(subparsers.add_parser(
+    "fallow", help="Move file(s) out from their package.",
+    description="""
+    Move file(s) out from their package.
+
+    The garden symlinks referred to by the specified files are replaced
+    with the file itself, turning them into weeds.
+
+    In other words, this command reverses the effects of cultivate.
+    """, add_help=False,
+    parents=[common_opts]
+))
+cmd_fallow.add_argument(
+    "files", nargs="*", type=pathlib.Path, metavar="<files>",
+    help="Paths to files to convert into weeds."
+)
+def task_fallow(args):
+    return find_garden(args).fallow(
+        args.files, **get_tend_args(args)
+    )
+cmd_fallow.set_defaults(task=task_fallow)
+
+
+cmd_arrange = argparse.ArgumentParser(add_help=False)
+front_back = cmd_arrange.add_mutually_exclusive_group(required=True)
+front_back.add_argument(
+    "--front", dest="front", action="store_true",
+    help="Give the package the highest precedence."
+)
+front_back.add_argument(
+    "--back", dest="front", action="store_false",
+    help="Give the package the lowest precedence."
+)
+front_back.set_defaults(front=None)
+
+cmd_arrange = add_custom_help(subparsers.add_parser(
+    "arrange", help="Change the precedence of a package.",
+    description="""
     Change the precedence of a package.
 
-    \b
-    --front gives the package the highest precedence
-    --back gives the package the lowest precedence
-    """
-
-    return ctx.obj["garden"].arrange(package_name, front=front, **tend_args)
-
-
-@cli.command(options_metavar="[options]")
-@click.pass_context
-def packages(ctx):
-    """
-    List installed packages.
-    """
-
-    for name in ctx.obj["garden"].manifest:
-        click.echo(name)
+    This affects the shadowing of files.
+    """, add_help=False,
+    # custom usage string to emphasize --front and --back
+    usage="%(prog)s [options] <package-name> (--front | --back)",
+    parents=[cmd_arrange, common_opts]
+))
+cmd_arrange.add_argument(
+    "package_name", metavar="<package-name>",
+    help="The target package."
+)
+def task_arrange(args):
+    return find_garden(args).arrange(
+        args.package_name, front=args.front, **get_tend_args(args)
+    )
+cmd_arrange.set_defaults(task=task_arrange)
 
 
-def main():
-    cli(obj={})
+cmd_list = add_custom_help(subparsers.add_parser(
+    "list", help="List installed packages.",
+    description="List installed packages.",
+    aliases=["packages"],  # alias for original command name
+    add_help=False
+))
+def task_list(args):
+    for name in find_garden(args).manifest:
+        print(name)
+cmd_list.set_defaults(task=task_list)
+
+
+cmd_help = add_custom_help(subparsers.add_parser(
+    "help", help="Display help about a subcommand.",
+    description="""
+    Display help about a subcommand.
+
+    If <subcommand> is not passed, general help about gardener is shown
+    instead.
+    """, add_help=False
+), help=argparse.SUPPRESS)
+cmd_help.add_argument(
+    "subcommand", nargs="?", metavar="<subcommand>",
+    choices=list(subparsers.choices),
+    help=f"List of commands: {', '.join(map(repr, subparsers.choices))}"
+)
+def task_help(args):
+    if args.subcommand is None:
+        cmd_gardener.print_help()
+    else:
+        subparsers.choices[args.subcommand].print_help()
+cmd_help.set_defaults(task=task_help)
+
+
+def main(*args, **kwargs):
+    args = cmd_gardener.parse_args(*args, **kwargs)
+    if args.invoked_subcommand is None:
+        cmd_gardener.print_help(file=sys.stderr)
+        cmd_gardener.exit(2)
+    else:
+        try:
+            result = args.task(args)
+        except Exception as e:
+            exit_with_error(str(e))
+        if hasattr(args, "runner"):
+            assert result is not None
+            args.runner(result, verbose=args.verbose)
 
 
 if __name__ == "__main__":

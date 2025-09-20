@@ -40,9 +40,6 @@ setup(
             "gardener = gardener:main"
         ]
     },
-    install_requires=[
-        "click >= 8"
-    ],
     license="MIT",
     classifiers=["Programming Language :: Python :: 3",
                  "Programming Language :: Python :: 3 :: Only",
