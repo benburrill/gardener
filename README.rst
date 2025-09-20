@@ -29,7 +29,7 @@ Python >= 3.6 is required.
 Symlink Gardener is a single-file script with no other dependencies, so
 you may install with:
 
-..code:: shell
+.. code:: shell
 
     $ curl https://raw.githubusercontent.com/benburrill/gardener/refs/heads/master/gardener.py -o ~/.local/bin/gardener
     $ chmod +x ~/.local/bin/gardener
@@ -44,13 +44,13 @@ You can also install with pip or `pipsi`_:
 Basic Usage
 -----------
 
-Create a garden in the current directory
+**Create a garden in the current directory**
 
 .. code:: shell
 
     $ gardener prepare
 
-Plant (install) packages in the garden
+**Plant (install) packages in the garden**
 
 This creates symlinks in the garden directory at paths that correspond
 to those in the package directory.
@@ -62,13 +62,13 @@ you can do is add ignore patterns)
 
     $ gardener plant path/to/common path/to/ex other-ex:path/to/other/ex
 
-Update symlinks for all installed packages
+**Update symlinks for all installed packages**
 
 .. code:: shell
 
     $ gardener tend
 
-Add weeds to an installed package.
+**Add weeds to an installed package**
 
 This moves the specified files from the garden directory to the package
 and creates a symlink in their place.
@@ -77,14 +77,14 @@ and creates a symlink in their place.
 
     $ gardener cultivate -p common some/file another/file
 
-Turn those symlinks back into weeds.
+**Turn those symlinks back into weeds**
 
 .. code:: shell
 
     $ gardener fallow some/file another/file
 
 
-Change package precedence.
+**Change package precedence**
 
 This causes symlinks owned by ex to shadow symlinks owned by all other
 packages.  Earlier, the package other-ex was in front of it.
@@ -93,13 +93,13 @@ packages.  Earlier, the package other-ex was in front of it.
 
     $ gardener arrange --front ex
 
-Prune (uninstall) packages
+**Prune (uninstall) packages**
 
 .. code:: shell
 
     $ gardener prune ex other-ex
 
-See the help for more
+**See the help for more**
 
 .. code:: shell
 
